@@ -288,6 +288,7 @@ Check with Tau 0.14:
 | 0.1 (TUI) | #42 the startup screen has no session, so the editor's hint says `/budget` and the other extension commands "go to the model as text", and completion lists none of them. Sending one still runs it: `AgentSession.submit` checks again once the session exists (verified on 0.13.0) | decided: the session is created at mount, in Tau 0.14.0 |
 | Tau 0.14 | #35 build: one spelling for dotted module identifiers in `--ext-config`, config keys, `ext:<name>:<topic>` and command owners | decided 2026-10-18: full dotted module names, `:` as the delimiter. tau-router's rename is planned in "With Tau 0.14.0" and lands with it |
 | 0.1 (typing) | tau_agent_core ships no `py.typed`, so mypy skips its annotations | not filed |
+| 0.14 docs | #69 `-m provider/model` with the key only in a config entry dies at the first request with a traceback; the fix is one startup `tau: error:` | filed. Until then the README says: name a configured model (`-m claude-haiku-5-5`), not `anthropic/<id>` |
 | 1.x | #22 `set_reasoning`, #23 thinking display and replay: a reasoning level per rung | open |
 
 ## Not in 1.0
