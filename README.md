@@ -11,7 +11,7 @@ several LLM accounts on a budget:
   sub-agent on its own model, with its own budget slice and a shell command that
   says when it's done. A failed check is retried once, one rung up.
 
-**Status: 0.0.1, working toward 1.0** (see `ROADMAP.md`). It works on Tau 0.13.0.
+**Status: 0.1.0, working toward 1.0** (see `ROADMAP.md`). It works on Tau 0.13.0.
 Spend is tracked per process, so two Tau instances don't yet see each other's
 spending; 0.2 fixes that.
 

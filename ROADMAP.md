@@ -12,11 +12,10 @@ The HTTP proxy that the 0.0.1 core was built toward is not part of 1.0 (see "Not
 
 ## Status (2026-10-18)
 
-- **Version:** `master` holds 0.1 work on top of 0.0.1. `__version__` is still `0.0.1`
-  and nothing is tagged; the tag commit bumps it to 0.1.0.
-- **Shipped to master, untagged:** the 0.1 package.
-- **In progress:** 0.1 sign-off. It needs John's TUI drive of the status strip and
-  a decision on #39 (see "Left before tagging 0.1.0").
+- **Version:** 0.1.0, tagged `v0.1.0` and published to PyPI as `ffwf-tau-router`
+  (the import stays `tau_router`). `/plan` is linked in by hand until john/tau #39
+  lands. The session's TUI drive of the status strip served as the 0.1 check; John's
+  own drive is the 1.0 sign-off.
 - **Next:** 0.2, the shared SQLite ledger. Nothing blocks starting it.
 - **Installs from PyPI** (2026-10-18). The 0.13.0 dists (`ffwf-tau`,
   `ffwf-tau-agent-core`, `-coding-agent`, `-llm`) are published. A fresh venv with
@@ -101,13 +100,13 @@ What 0.1 contains:
 - Live: fixtures/e6 on Tau 0.13.0, loaded from the installed package, printed
   ALL PASS for $0.0126 (`experiments/out/pkg-e6`).
 
-Left before tagging 0.1.0:
+Released as 0.1.0:
 - `/plan` is a template in the package, but Tau 0.13 can't take a template from
   an extension (john/tau #39), so you link it in by hand. The sandbox does.
-  Decision: tag 0.1.0 with the manual link, or wait for #39.
-- John's TUI drive of the status strip, which headless runs skip. It's in
-  progress, and it found #42 (on the startup screen, the editor says extension
-  commands go to the model and completes none of them).
+  0.1.0 shipped with the manual link.
+- The status strip was checked with the session's own tmux TUI drive, which also
+  found Tau #42 (on the startup screen, the editor said extension commands go to
+  the model and completed none of them).
 - Dropped: splitting the pure decisions out of the hooks. The fake-ctx tests
   drive the hooks directly, so the split bought no testability.
 
@@ -309,5 +308,4 @@ money, which is why 0.4 refuses a priced provider with no cap.
 
 ## Inputs needed from John
 
-- 0.1.0: tag with `/plan` linked by hand, or wait for #39.
 - #28: the admission-hook design, which 1.0 hard caps need.
