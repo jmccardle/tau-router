@@ -180,8 +180,9 @@ build adds to the plan above:
   for a session budget, so the router clears its session-scoped keys on session start
   and switch.
 
-- A rung whose model entry Tau can't build (#65) is refused by `ctx.set_model`
-  before any request. The router catches Tau core's `ModelUnavailableError` (proposed
+- A rung whose model entry Tau can't build (#65; John chose option (c): only the
+  selected entry is fatal at startup, every other bad entry is a startup warning, so a
+  bad entry can sit in a profile) is refused by `ctx.set_model` before any request. The router catches Tau core's `ModelUnavailableError` (proposed
   on fix/home-and-model-followups; until it lands, `ValueError`) and `KeyError` (a name
   not in config), marks that rung blocked with the reason in `/budget`, and steps to
   the next rung instead of failing the turn. It never imports `tau_coding_agent`.
