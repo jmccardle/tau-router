@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Named like the other ffwf-tau-* dists; the import stays tau_router and the CLI tau-router.
+name = "ffwf-tau-router"
+dynamic = ["version"]
+description = "Tau extensions: route each request across your LLM accounts by budget, and split a budget between sub-agents"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "John McCardle" }]
+keywords = ["tau", "agent", "llm", "router", "budget", "extension"]
+# No License :: classifier: PEP 639 forbids it alongside an SPDX `license`. The Python versions are the CI
+# matrix in .github/workflows/publish.yml; keep the two in step.
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Capped below 0.14: Tau 0.14 renames extensions to their module names (john/tau #35), and 0.1 still uses
+# the 0.13 names. The release that adopts 0.14 moves the cap.
+dependencies = ["ffwf-tau-agent-core>=0.13.0,<0.14"]
+
+[project.urls]
+Homepage = "https://github.com/jmccardle/tau-router"
+Repository = "https://github.com/jmccardle/tau-router"
+Issues = "https://github.com/jmccardle/tau-router/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.10"]
+
+[project.scripts]
+tau-router = "tau_router.cli:main"
+
+# Read by Tau once john/tau #35 lands, which names an extension by its module: these are
+# tau_router.router and tau_router.planner. Until then `tau $(tau-router ext-args)` loads the thin
+# files in tau_router/ext. The group name is provisional until that build settles it.
+[project.entry-points."tau.extensions"]
+router = "tau_router.router"
+planner = "tau_router.planner"
+
+[tool.setuptools.dynamic]
+version = { attr = "tau_router.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tau_router = ["prompts/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+files = ["src"]
+
+# tau_agent_core ships no py.typed marker yet, so mypy won't read its annotations.
+[[tool.mypy.overrides]]
+module = ["tau_agent_core.*"]
+ignore_missing_imports = true
