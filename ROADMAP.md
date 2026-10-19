@@ -174,6 +174,8 @@ build adds to the plan above:
   (`error`), a provider's allowance below its reserve (`warning`), and a pin that
   overrides the profile. They show in the TUI footer and `/extensions`, and reach a
   client that attaches later; the router clears each when it no longer holds.
+  Call `api.set_warning` and `ctx.ui.*` only from Tau's event loop (john/tau #64 will
+  refuse an off-loop call); the router's hooks and planner branches already run there.
 
 Check with Tau 0.14:
 - A live run of the e6 plan fixture and a TUI drive on the 0.14 build, from an
