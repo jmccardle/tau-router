@@ -101,7 +101,7 @@ In the TUI, the status strip shows `router: <model> [provider] · <profile or pi
 `pip install -e '.[dev]' && pytest`. The tests run the extensions against a fake
 Tau api and ctx with scripted turns. No model is called. `experiments/` holds
 the live runs, results (`FINDINGS.md`) and a sandbox for trying it
-(`TEST-DRIVE.md`).
+(`TEST-DRIVE.md`). `CONTRIBUTING.md` covers the checks, remotes and releases.
 
 ## License
 
