@@ -146,6 +146,11 @@ The change list:
   0.14 fixes the name.
 - README install: authorizing the tau-router version (#35), and re-authorizing
   after an upgrade.
+- README upgrade note, stated plainly: a config still under the old
+  `extensions.router` key leaves the router unconfigured, so it fails to load.
+  Tau shows a notice and keeps running, which means **no budget is enforced**.
+  A user who needs the guarantee loads the router with `-e tau_router.router`,
+  so that a load failure stops the run.
 
 Built in Tau on `feat/ext-packages` @ 55a0028 (awaiting John's review). What the
 build adds to the plan above:
@@ -300,6 +305,11 @@ Check with Tau 0.14:
   short name only interactively. Drop-in directory extensions go through the same
   authorization as packages, and existing drop-ins are grandfathered.
 - #42: Tau 0.14.0 creates the TUI session at mount.
+- No "required extension" flag (John, 2026-10-19). An extension doesn't decide for
+  the user that it's required, and checking that an extension loads after an install
+  or upgrade is the user's job. Tau shows a notice in every head when a discovered
+  extension fails to load, and keeps running; an explicit `-e` still fails the run.
+  tau-router's code doesn't change; the 0.14 README says what it means for budgets.
 
 ## Accounts
 
