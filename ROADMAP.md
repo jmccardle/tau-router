@@ -176,6 +176,9 @@ Check with Tau 0.14:
 
 ### 0.2.0 One shared ledger
 
+- Paint the status strip on `session_start`. With Tau 0.14 creating the TUI session at
+  mount (#42), the strip is visibly blank until the first input, because the router
+  sets it only from `input`, `message_end` and `turn_end`.
 - The ledger moves to SQLite in WAL mode at `~/.tau/ext-state/tau-router.db`, replacing
   the JSONL file, which is read in full on every check.
 - Rows carry `session_id` (`ctx.session_id`), `cursor_id` and `account`. Accounts and
