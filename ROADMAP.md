@@ -188,6 +188,10 @@ build adds to the plan above:
   the next rung instead of failing the turn. It never imports `tau_coding_agent`.
   The router keeps reading `config.json` for its catalog until #24 gives extensions
   one (planned for Tau 0.15).
+  **Required in the 0.14 release, with a test:** live on Tau f81e361, an uncaught
+  `ModelUnavailableError` from the router's `input` hook was logged as an extension
+  error, and the turn then ran on the over-budget rung, bypassing the cap (Tau #29
+  covers the Tau side). 0.1.0 can't hit it, because it's capped below Tau 0.14.
 
 Check with Tau 0.14:
 - A live run of the e6 plan fixture and a TUI drive on the 0.14 build, from an
