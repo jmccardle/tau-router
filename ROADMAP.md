@@ -176,6 +176,9 @@ build adds to the plan above:
   client that attaches later; the router clears each when it no longer holds.
   Call `api.set_warning` and `ctx.ui.*` only from Tau's event loop (john/tau #64 will
   refuse an off-loop call); the router's hooks and planner branches already run there.
+  Warnings persist across `/new`, fork and switch: right for provider allowances, wrong
+  for a session budget, so the router clears its session-scoped keys on session start
+  and switch.
 
 Check with Tau 0.14:
 - A live run of the e6 plan fixture and a TUI drive on the 0.14 build, from an
