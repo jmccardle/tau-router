@@ -193,6 +193,10 @@ build adds to the plan above:
   error, and the turn then ran on the over-budget rung, bypassing the cap (Tau #29
   covers the Tau side). 0.1.0 can't hit it, because it's capped below Tau 0.14.
 
+- A 401 or 403 blocks the rung persistently, with the reason "no API key" or "forbidden".
+  The router holds only on 429/503/529 today, and from Tau 0.14 (#69) a keyless model
+  sends its request and gets the provider's real 401 on every turn.
+
 Check with Tau 0.14:
 - A live run of the e6 plan fixture and a TUI drive on the 0.14 build, from an
   installed, authorized package. None has been done against tau-router yet.
@@ -344,5 +348,9 @@ the last kind, the cap you set is the only thing between the router and real
 money, which is why 0.4 refuses a priced provider with no cap.
 
 ## Inputs needed from John
+
+- `-m <model>` naming a rung of the active profile isn't a pin: the router starts
+  from the top rung, so `-m nemotron-super` (free) ran on claude-haiku-5-5 (paid) on
+  2026-10-20. Should `-m` pin, like `/model`, or set the tier to that rung? Rec: pin.
 
 - #28: the admission-hook design, which 1.0 hard caps need.
