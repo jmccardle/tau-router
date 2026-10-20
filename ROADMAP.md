@@ -193,9 +193,12 @@ build adds to the plan above:
   error, and the turn then ran on the over-budget rung, bypassing the cap (Tau #29
   covers the Tau side). 0.1.0 can't hit it, because it's capped below Tau 0.14.
 
-- A 401 or 403 blocks the rung persistently, with the reason "no API key" or "forbidden".
+- A 401 or 403 blocks the rung persistently. The reason comes from the error's
+  `key_sent` field (Tau fix/69-keyless): False gives "no API key", True gives "API key
+  refused", None (a third-party provider) gives "HTTP 401". It never parses hint text.
   The router holds only on 429/503/529 today, and from Tau 0.14 (#69) a keyless model
-  sends its request and gets the provider's real 401 on every turn.
+  sends its request and gets the provider's real 401 on every turn. A 401 isn't
+  retried, so it arrives on the final error (`agent_end`), not on `provider_retry`.
 
 Check with Tau 0.14:
 - A live run of the e6 plan fixture and a TUI drive on the 0.14 build, from an
