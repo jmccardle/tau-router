@@ -10,5 +10,5 @@ if [ "${1:-}" = "--fixture" ]; then
   WORK=$EXP/out/drive-$(date +%H%M%S); mkdir -p "$WORK"; cp -r "$EXP/fixtures/e6/." "$WORK/"
 fi
 echo "workdir: $WORK   ledger: $EXP/home/.tau/ext-state/tau-router.jsonl"
-# The extensions load from the tau-router installed in Tau's venv (pip install -e ..).
-cd "$WORK" && exec env HOME="$EXP/home" "$EXP/tau-master/venv/bin/tau" $("$EXP/tau-master/venv/bin/tau-router" ext-args) "$@"
+# Tau discovers the tau-router installed in its venv (pip install -e ..); make_tau_home.py authorized it.
+cd "$WORK" && exec env HOME="$EXP/home" "$EXP/tau-master/venv/bin/tau" "$@"

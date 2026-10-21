@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 from cache_probe import KEY_ENV, key_for, read_env
+
 from tau_router.cli import prompt_dir
 
 HERE = Path(__file__).resolve().parent
@@ -74,6 +76,8 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--env", type=Path, required=True)
     p.add_argument("--home", type=Path, default=HERE / "home")
+    p.add_argument("--tau", type=Path, default=HERE / "tau-master" / "venv" / "bin" / "tau",
+                   help="the tau whose venv holds tau-router; it authorizes both extensions in the sandbox")
     args = p.parse_args()
     env = read_env(args.env)
     models = {}
@@ -97,7 +101,7 @@ def main() -> int:
         "default_model": "claude-haiku-5-5",
         "compaction": {"summarizer": "flash-lite"},
         "extensions": {
-            "router": {
+            "tau_router.router": {
                 "profiles": {
                     "budget-target": ["claude-haiku-5-5", "mistral-small", "ministral-3b", "nemotron-super",
                                       "flash-lite"],
@@ -109,15 +113,18 @@ def main() -> int:
                             "cerebras": {"cost": 0.05, "period": "day"}},
                 "reserve_cost": 0.001,
             },
-            "planner": {},
+            "tau_router.planner": {},
         },
     }
     (tau / "config.json").write_text(json.dumps(config, indent=1))
-    # The extensions load from the installed package (drive.sh passes `tau-router ext-args`), so the
-    # links earlier versions put in extensions/ are removed rather than left to load a second copy.
+    # Tau discovers the installed package and loads it once authorized (john/tau #35). The links earlier
+    # versions put in extensions/ are removed rather than left to load a second copy.
     for name in ("router.py", "planner.py"):
         (tau / "extensions" / name).unlink(missing_ok=True)
-    # /plan is a prompt template, and Tau 0.13 reads templates only from its prompt dirs (john/tau #39).
+    for name in ("tau_router.router", "tau_router.planner"):
+        subprocess.run([str(args.tau), "ext", "authorize", name], check=True,
+                       env={"HOME": str(args.home.resolve()), "PATH": "/usr/bin:/bin"})
+    # /plan is a prompt template, and Tau reads templates only from its prompt dirs (john/tau #39).
     # The sandbox links the packaged one in; a real install does the same by hand.
     prompts = tau / "prompts"
     prompts.mkdir(exist_ok=True)

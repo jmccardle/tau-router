@@ -11,18 +11,21 @@ tau-master/venv/bin/pip install -e ..        # tau-router into Tau's venv, once
 ../venv/bin/python make_tau_home.py --env PATH/TO/.env    # a .env holding your provider keys
 ```
 
-This writes `home/.tau/config.json` with 22 models across six providers, and the
-`router` and `planner` extension config. Every model is in the `/model` picker.
+This writes `home/.tau/config.json` with 23 models across six providers, and the
+`tau_router.router` and `tau_router.planner` extension config, and authorizes both
+extensions in the sandbox with `tau ext authorize`. Every model is in the `/model` picker.
 Models without a `cost` block (the larger Mistral and Gemini models)
 are unpriced: you can pick them directly, but the router refuses them under a
 budget rather than guess a price. The OpenRouter `:free` models are priced at 0,
 as OpenRouter's API reports them, and join the `free-only` profile. Context windows
 are what each provider's model API reported on 2026-10-16. The extensions load from
-the installed package: `drive.sh` and the `run_*.sh` scripts pass `$(tau-router
-ext-args)`. Only `/plan`'s template is linked in, into `home/.tau/prompts/`,
-because Tau 0.13 can't take one from an extension (john/tau #39). Tau itself is
-a private clone at `experiments/tau-master`, with its own venv and the TUI
-installed. It is on the 0.13.0 release branch (53ede1e as of 2026-10-18).
+the installed package: `drive.sh` lets Tau discover them, and the `run_plan*.sh`
+scripts name them with `-e`, so a load failure stops the run. Only `/plan`'s
+template is linked in, into `home/.tau/prompts/`, because Tau can't take one from
+an extension yet (john/tau #39). Tau itself is a private clone at
+`experiments/tau-master`, with its own venv and the TUI installed. It is at v0.14.0
+(b016dff, 2026-10-21). After reinstalling tau-router there, run `make_tau_home.py`
+again: an authorization covers one installed version.
 
 ## Drive
 
@@ -62,10 +65,13 @@ provider, and choices are per model.
   - `/budget` lists the slices.
 - **`budget_status`:** the same information as `/budget`, as a tool any model
   can call.
-- **Status strip (TUI):** after each turn, `router: <model> [provider] · <profile or
-  pinned> $spent/$cap period` in Tau's extension status line (`ctx.ui.set_status`).
+- **Status strip (TUI):** from the session's start and after each turn, `router:
+  <model> [provider] · <profile or pinned> $spent/$cap period` in Tau's extension
+  status line (`ctx.ui.set_status`).
+- **Warnings:** a spent budget, a skipped model, a pin, or every rung blocked shows
+  as a Tau session warning, in the footer and `/extensions`, until it ends.
 
-## Knobs (`home/.tau/config.json` → `extensions.router`)
+## Knobs (`home/.tau/config.json` → `extensions."tau_router.router"`)
 
 | key | what it does |
 |---|---|

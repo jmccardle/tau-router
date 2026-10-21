@@ -28,9 +28,9 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-# Capped below 0.14: Tau 0.14 renames extensions to their module names (john/tau #35), and 0.1 still uses
-# the 0.13 names. The release that adopts 0.14 moves the cap.
-dependencies = ["ffwf-tau-agent-core>=0.13.0,<0.14"]
+# Tau 0.14 names an extension by its module (john/tau #35); 0.15 may rename again, so the cap moves with a
+# release that has been tested on it.
+dependencies = ["ffwf-tau-agent-core>=0.14.0,<0.15"]
 
 [project.urls]
 Homepage = "https://github.com/jmccardle/tau-router"
@@ -38,14 +38,14 @@ Repository = "https://github.com/jmccardle/tau-router"
 Issues = "https://github.com/jmccardle/tau-router/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.10"]
+# tests/check_loader.py drives the tau CLI, which ffwf-tau-agent-core doesn't install.
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.10", "ffwf-tau-coding-agent>=0.14.0,<0.15"]
 
 [project.scripts]
 tau-router = "tau_router.cli:main"
 
-# Read by Tau once john/tau #35 lands, which names an extension by its module: these are
-# tau_router.router and tau_router.planner. Until then `tau $(tau-router ext-args)` loads the thin
-# files in tau_router/ext. The group name is provisional until that build settles it.
+# Tau finds these and loads each once you authorize it: `tau ext authorize tau_router.router`. An extension's
+# identifier is its module name, so the entry-point names are labels only.
 [project.entry-points."tau.extensions"]
 router = "tau_router.router"
 planner = "tau_router.planner"

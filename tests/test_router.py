@@ -111,6 +111,102 @@ def test_a_400_is_not_a_hold(tau_home):
     assert not rows(router, "hold")
 
 
+def test_a_rung_tau_cannot_build_is_skipped_not_run_over_budget(tau_home):
+    """Tau #65: set_model raises for an entry that doesn't build. Uncaught, the turn ran on the old rung."""
+    router, api = load_router(tau_home)
+    ctx = FakeCtx("free", unavailable={"big": "anthropic: no such backend version\nsee config"})
+    assert api.fire("input", {}, ctx) == [None]
+    assert ctx.model == "mid"
+    why = "unusable: anthropic: no such backend version see config"
+    assert router.blocked(router.models["big"], time.time()) == why
+    assert "[anthropic] " + why in router.budget_report("mid-1")
+    assert api.warnings["model:big"] == ("big is skipped: anthropic: no such backend version see config", "warning")
+
+
+def test_a_rung_missing_from_tau_config_is_skipped(tau_home):
+    router, api = load_router(tau_home)
+    ctx = FakeCtx("free")
+    big = router.models["big"]
+    router.models["ghost"] = big.__class__("ghost", "ghost-1", "anthropic", big.cost)  # in a profile, not in Tau
+    router.rungs.insert(0, router.models["ghost"])
+    api.fire("input", {}, ctx)
+    assert ctx.model == "big"
+    assert router.unusable == {"ghost": "not a configured model (ghost)"}
+
+
+def test_a_wanted_step_down_that_tau_refuses_goes_one_further(tau_home):
+    router, api = load_router(tau_home)
+    ctx = FakeCtx("big", unavailable={"mid": "broken"})
+    api.fire("input", {}, ctx)
+    api.fire("message_end", usage_event(ctx, M))  # anthropic's 1.0 is spent; mid is wanted
+    (out,) = api.fire("turn_end", {}, ctx)
+    assert ctx.model == "free"
+    assert "you run as free" in out["message"]["content"] and "mid is unusable: broken" in out["message"]["content"]
+
+
+def test_every_rung_refused_by_tau_refuses_the_turn_with_an_error_warning(tau_home):
+    router, api = load_router(tau_home)
+    ctx = FakeCtx("free", unavailable={"big": "x", "mid": "y"})
+    api.fire("message_end", usage_event(ctx, 0))
+    api.fire("provider_retry", refusal_event(ctx, 429, retry_after=30))  # free is held
+    assert api.fire("input", {}, ctx) == [{"handled": True}]
+    assert ctx.model == "free"
+    assert api.warnings["refused"][1] == "error"
+
+
+@pytest.mark.parametrize(("key_sent", "why"), [
+    (False, "no API key (HTTP 401)"), (True, "API key refused (HTTP 401)"), (None, "refused (HTTP 401)")])
+def test_a_401_blocks_the_rung_the_request_went_to(tau_home, key_sent, why):
+    router, api = load_router(tau_home)
+    ctx = FakeCtx("mid")
+    api.fire("message_end", usage_event(ctx, 0))  # mid answered last; the router now sends to big
+    api.fire("input", {}, ctx)
+    api.fire("agent_end", refusal_event(ctx, 401, retry_after=None, key_sent=key_sent))
+    assert router.unusable == {"big": why}
+    assert api.warnings["model:big"] == (f"big is skipped: {why}", "warning")
+    api.fire("input", {}, ctx)
+    assert ctx.model == "mid"
+
+
+def test_spent_budgets_and_pins_are_warnings_until_they_end(tau_home):
+    router, api = load_router(tau_home)
+    ctx = FakeCtx("big")
+    api.fire("input", {}, ctx)
+    api.fire("message_end", usage_event(ctx, M))
+    api.fire("turn_end", {}, ctx)
+    assert api.warnings["budget:anthropic"][0].startswith("anthropic budget ($1.00/day) is spent")
+    ctx.set_model("free")  # /model free
+    api.fire("input", {}, ctx)
+    assert "pin" in api.warnings
+    calls = api.warning_calls
+    api.fire("input", {}, ctx)
+    assert api.warning_calls == calls  # an unchanged warning is not set again
+    import asyncio
+
+    asyncio.run(api.commands["profile"]["handler"]("p", ctx))
+    assert "pin" not in api.warnings and ctx.model == "mid"
+
+
+def test_a_new_conversation_drops_the_pin(tau_home):
+    router, api = load_router(tau_home)
+    ctx = FakeCtx("big")
+    api.fire("input", {}, ctx)
+    ctx.set_model("mid")
+    api.fire("input", {}, ctx)
+    assert router.pinned.name == "mid"
+    ctx.session_id = "s2"  # /new: Tau fires no hook, but the id changes
+    api.fire("input", {}, ctx)
+    assert router.pinned is None and ctx.model == "big"
+    assert "pin" not in api.warnings
+
+
+def test_session_start_paints_the_status_strip(tau_home):
+    _, api = load_router(tau_home)
+    ctx = FakeCtx("big")
+    api.fire("session_start", {"type": "session_start", "reason": "startup"}, ctx)
+    assert ctx.ui.status["router"] == "router: big [anthropic] · p $0.000/$1.00 day"
+
+
 def test_a_spent_slice_halts_its_branch(tau_home):
     router, api = load_router(tau_home)
     router.open_account("root/a", 0.5)
@@ -145,6 +241,17 @@ def test_an_unpriced_model_is_refused_under_a_budget(tau_home):
 def test_renamed_keys_are_refused(tau_home, overrides, message):
     with pytest.raises(ValueError, match=message.replace(".", r"\.")):
         load_router(tau_home, **overrides)
+
+
+def test_a_config_left_under_the_0_1_key_is_named(tau_home):
+    from tau_router import router as ext
+    from tests.conftest import MODELS, ROUTER_CONFIG, FakeApi
+
+    with pytest.raises(ValueError, match=r'no config under extensions\."tau_router\.router" in config\.json\.$'):
+        ext.register(FakeApi({}))
+    (tau_home / "config.json").write_text(json.dumps({"models": MODELS, "extensions": {"router": ROUTER_CONFIG}}))
+    with pytest.raises(ValueError, match="0.1 read extensions.router, which is still there; rename it"):
+        ext.register(FakeApi({}))
 
 
 def test_a_budget_without_a_cap_is_refused(tau_home):

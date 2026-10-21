@@ -1,11 +1,11 @@
 """Planner: hand parts of a job to sub-agents, each with a model, a budget slice and a done-check.
 
-Tau loads it as ``tau_router.ext.planner``. It needs the router extension loaded too: the planner
-finds it over Tau's pub/sub (``ext:planner:need_router``) and opens each sub-agent's budget slice
-there.
+Tau loads it as ``tau_router.planner``. It needs the router extension (``tau_router.router``) loaded
+too: the planner finds it over Tau's pub/sub (``ext:tau_router.planner:need_router``) and opens each
+sub-agent's budget slice there.
 
 * ``/plan <goal>`` is the prompt template ``tau_router/prompts/plan.md``: it asks the current model
-  to plan ``goal`` with ``delegate``. Tau 0.13 reads templates only from its prompt directories, and
+  to plan ``goal`` with ``delegate``. Tau reads templates only from its prompt directories, and
   an extension can't add one yet (john/tau #39), so it's there only if you link it in.
 * ``delegate`` runs one sub-agent and returns its outcome: did its check pass, what it spent,
   what is left of the planner's own budget, and the sub-agent's final words.
@@ -100,7 +100,7 @@ def register(api: Any) -> None:
         payload: dict[str, Any] = {}
         await api.emit("need_router", payload)
         if "router" not in payload:
-            raise RuntimeError("planner: the router extension (tau_router.ext.router) is not loaded")
+            raise RuntimeError("planner: the router extension (tau_router.router) is not loaded")
         return payload["router"]
 
     async def delegate(tool_call_id, params, signal, on_update, ctx):  # noqa: ANN001

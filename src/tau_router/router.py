@@ -1,6 +1,6 @@
 """The router extension: choose the model for each request from a profile, within your budgets.
 
-Tau loads it as ``tau_router.ext.router``. Its config lives under ``extensions.router``:
+Tau loads it as ``tau_router.router``. Its config lives under ``extensions."tau_router.router"``:
 
     profiles      {name: [model config names, best first]}
     profile       the active profile name
@@ -15,7 +15,8 @@ Tau loads it as ``tau_router.ext.router``. Its config lives under ``extensions.r
     ledger        JSONL path (default <tau home>/ext-state/tau-router.jsonl)
 
 A switch takes effect on the next request of the same loop, and is recorded so --continue
-resumes on it.
+resumes on it. A rung Tau can't use (its config entry doesn't build, or its provider refused the
+key) is skipped for the rest of the process, and says why in /budget and as a session warning.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tau_agent_core import ModelUnavailableError
 from tau_agent_core.tau_home import resolve_tau_home
 from tau_agent_core.usage import price_usage
 
@@ -82,9 +84,14 @@ def period_start(budget: dict[str, Any], now: float) -> float:
 class Router:
     def __init__(self, api: Any) -> None:
         cfg = dict(api.config or {})
-        check_config(cfg)
         # Tau gives an extension no model catalog yet (john/tau #24), so read its config file.
-        models = json.loads((resolve_tau_home() / "config.json").read_text()).get("models", {})
+        tau_config = json.loads((resolve_tau_home() / "config.json").read_text())
+        if not cfg:
+            old = " tau-router 0.1 read extensions.router, which is still there; rename it." \
+                if "router" in (tau_config.get("extensions") or {}) else ""
+            raise ValueError(f'router: no config under extensions."tau_router.router" in config.json.{old}')
+        check_config(cfg)
+        models = tau_config.get("models", {})
         # Every config model is priced and attributed, not only the profile's: you may pick any with /model.
         self.models = {n: Rung(n, m["model"], m.get("backend", "?"), m.get("cost")) for n, m in models.items()}
         self.by_id: dict[str, Rung] = {}
@@ -110,8 +117,14 @@ class Router:
         # Per cursor: parallel planner branches each have their own pending switch and last model.
         self.wanted: dict[str | None, tuple[Rung, str]] = {}
         self.exhausted: dict[str | None, str] = {}
+        # The model each cursor's next request goes to: what the router last set, else what last answered.
         self.last_model: dict[str | None, str | None] = {}
         self.accounts: dict[str, dict[str, Any]] = {}
+        # Rung name -> why Tau can't use it. Not in the ledger: a fixed config or key works after a restart.
+        self.unusable: dict[str, str] = {}
+        self.refused = False  # the head's last turn was refused: every rung within the tier is blocked
+        self.session_id: str | None = None
+        self.warnings: dict[str, tuple[str, str]] = {}
 
     def money(self, amount: float, digits: int = 4) -> str:
         return f"{self.currency}{amount:.{digits}f}"
@@ -160,6 +173,8 @@ class Router:
 
     def blocked(self, rung: Rung, now: float) -> str | None:
         """Why this rung can't take the next request, or None."""
+        if rung.name in self.unusable:
+            return f"unusable: {self.unusable[rung.name]}"
         hold = self.held(rung, now)
         if hold:
             return f"held: {hold}"
@@ -305,11 +320,94 @@ class Router:
     def on_refusal(self, event: Any) -> None:
         detail = getattr(event, "error_detail", None)
         model_id = self.last_model.get(getattr(event, "cursor_id", None))
-        if detail is None or detail.status not in (429, 503, 529) or model_id is None:
+        if detail is None or model_id is None:
+            return
+        if detail.status in (401, 403):
+            # Not retried, so it reaches agent_end only. Every turn on this rung would be refused the same way.
+            rung = self.by_id.get(model_id)
+            if rung is not None:
+                why = {False: "no API key", True: "API key refused"}.get(detail.key_sent, "refused")
+                self.mark_unusable(rung, f"{why} (HTTP {detail.status})")
+            return
+        if detail.status not in (429, 503, 529):
             return
         wait = detail.retry_after if detail.retry_after is not None else self.hold_seconds
         self.append(kind="hold", model=model_id, until=time.time() + wait,
                     why=f"HTTP {detail.status}, {wait:.0f}s ({'Retry-After' if detail.retry_after else 'default'})")
+
+    def mark_unusable(self, rung: Rung, why: str) -> None:
+        self.unusable[rung.name] = " ".join(why.split())  # a warning is one line
+        self.append(kind="unusable", model=rung.name, why=self.unusable[rung.name])
+        self.refresh_warnings()
+
+    def try_set(self, ctx: Any, rung: Rung) -> bool:
+        """Switch ``ctx`` to ``rung``; a rung Tau refuses is marked unusable instead (#65)."""
+        try:
+            ctx.set_model(rung.name)
+        except KeyError as exc:
+            self.mark_unusable(rung, f"not a configured model ({exc.args[0] if exc.args else rung.name})")
+            return False
+        except ModelUnavailableError as exc:
+            self.mark_unusable(rung, str(exc))
+            return False
+        return True
+
+    def route(self, ctx: Any, choose: Any, why: str, current: Rung | None) -> Rung | None:
+        """Move ``ctx`` to the rung ``choose()`` names, asking again past each rung Tau refuses.
+
+        ``choose`` reads ``blocked``, which counts a refused rung from then on, so the loop ends.
+        Returns the rung the next request goes to, or None when ``choose`` has none.
+        """
+        while (target := choose()) is not None:
+            if current is not None and current.name == target.name:
+                break
+            if self.try_set(ctx, target):
+                self.append(kind="switch", frm=current and current.name, to=target.name, why=why,
+                            cursor=ctx.cursor.id)
+                break
+        else:
+            return None
+        if self.account_of(ctx) is None:
+            self.last_set_id = target.model_id
+        self.last_model[ctx.cursor.id] = target.model_id
+        return target
+
+    def new_session(self, ctx: Any) -> None:
+        """Forget what belonged to the previous conversation; /new, fork and resume fire no hook."""
+        sid = ctx.session_id
+        if sid == self.session_id:
+            return
+        if self.session_id is not None:
+            self.pinned, self.last_set_id, self.refused = None, None, False
+            self.wanted.pop(ctx.cursor.id, None)
+            self.exhausted.pop(ctx.cursor.id, None)
+        self.session_id = sid
+
+    def refresh_warnings(self) -> None:
+        """Show what keeps the router from routing normally as Tau session warnings (#60); clear what ended."""
+        now = time.time()
+        want: dict[str, tuple[str, str]] = {}
+        for prov, b in self.budgets.items():
+            if float(b["cost"]) - self.spent(prov, now) < self.reserve:
+                want[f"budget:{prov}"] = (f"{prov} budget ({self.money(b['cost'], 2)}/{b.get('period', 'day')}) "
+                                          "is spent; its priced rungs are skipped until it resets", "warning")
+        if self.persona_cost is not None and float(self.persona_cost) - self.spent(None, now) < self.reserve:
+            want["budget:all"] = (f"the overall budget ({self.money(self.persona_cost, 2)}) is spent; "
+                                  "only free rungs are used", "warning")
+        for name, why in self.unusable.items():
+            want[f"model:{name}"] = (f"{name} is skipped: {why}", "warning")
+        if self.pinned is not None:
+            want["pin"] = (f"pinned to {self.pinned.name}; routing is paused until /profile {self.profile}",
+                           "warning")
+        if self.refused:
+            want["refused"] = ("every rung within the tier is blocked, so turns are refused; /budget shows why",
+                               "error")
+        for key, (message, severity) in want.items():
+            if self.warnings.get(key) != (message, severity):
+                self.api.set_warning(key, message, severity)
+        for key in self.warnings.keys() - want.keys():
+            self.api.clear_warning(key)
+        self.warnings = want
 
     def on_input(self, event: dict[str, Any], ctx: Any) -> dict[str, Any] | None:
         now = time.time()
@@ -319,15 +417,13 @@ class Router:
             # A branch with a planner account keeps the planner's model unless it is blocked.
             # (Seeded branches skip input hooks; this covers branches started with a prompt.)
             rest = self.rungs[self.rungs.index(current):] if current in self.rungs else self.rungs[self.tier:]
-            pick = current if self.blocked(current, now) is None else \
-                next((r for r in rest if self.blocked(r, now) is None), None)
-            if pick is None:
-                return {"handled": True}
-            ctx.set_model(pick.name)
-            if pick is not current:
-                self.append(kind="switch", frm=current.name, to=pick.name, why="branch start: blocked",
-                            cursor=ctx.cursor.id)
-            return None
+
+            def keep() -> Rung | None:
+                return current if self.blocked(current, now) is None else \
+                    next((r for r in rest if self.blocked(r, now) is None), None)
+
+            return None if self.route(ctx, keep, "branch start: blocked", current) else {"handled": True}
+        self.new_session(ctx)
 
         # A model you chose yourself (/model, or -m outside the profile) is pinned: the router stops
         # choosing until /profile or /tier, or until that model is blocked.
@@ -346,31 +442,35 @@ class Router:
                 why = None
             if why is None:
                 self.last_set_id = self.pinned.model_id
+                self.last_model[ctx.cursor.id] = self.pinned.model_id
                 return None
             ctx.ui.notify(f"router: {self.pinned.name} is blocked ({why}); back on profile {self.profile}.",
                           "warning")
             self.append(kind="unpin", model=self.pinned.name, why=why)
             self.pinned = None
 
-        target = self.best(now)
-        if target is None:
+        def choose() -> Rung | None:
+            target = self.best(now)
+            if target is not None and self.mode == "agent" and current in self.rungs \
+                    and self.rungs.index(current) >= self.tier:
+                # The agent's own choice stands while it is within tier and unblocked; when blocked,
+                # step down from it rather than jump to the top.
+                target = current if self.blocked(current, now) is None else \
+                    (self.best(now, self.rungs.index(current)) or target)
+            return target
+
+        self.refused = self.route(ctx, choose, "turn start", current) is None
+        if self.refused:
             ctx.ui.notify("router: every rung within the tier is blocked; turn refused. /budget shows why.",
                           "warning")
             self.append(kind="refused", why={r.name: self.blocked(r, now) for r in self.rungs})
             return {"handled": True}
-        if self.mode == "agent" and current in self.rungs and self.rungs.index(current) >= self.tier:
-            # The agent's own choice stands while it is within tier and unblocked; when blocked,
-            # step down from it rather than jump to the top.
-            target = current if self.blocked(current, now) is None else \
-                (self.best(now, self.rungs.index(current)) or target)
-        self.switch_to(ctx, target, "turn start", current)
         return None
 
-    def switch_to(self, ctx: Any, target: Rung, why: str, current: Rung | None = None) -> None:
-        if current is None or current.name != target.name:
-            ctx.set_model(target.name)
-            self.append(kind="switch", frm=current and current.name, to=target.name, why=why)
-        self.last_set_id = target.model_id
+    def switch_to(self, ctx: Any, why: str) -> Rung | None:
+        """Route the head from the best rung now, as /profile and /tier do; None when every rung is blocked."""
+        now = time.time()
+        return self.route(ctx, lambda: self.best(now), why, self.by_id.get(ctx.get_model().get("id")))
 
     # -- accounts: budget slices for branch cursors ------------------------------------------
 
@@ -422,12 +522,21 @@ class Router:
                                 "content": f"[router] Stopping: {exhausted}."}}
         if wanted is None:
             return None
-        rung, why = wanted
-        ctx.set_model(rung.name)
-        if label is None:  # a switch inside a planner branch is not the head session's model
-            self.last_set_id = rung.model_id
+        want, why = wanted
         frm = self.by_id.get(self.last_model.get(cursor) or "")
-        self.append(kind="switch", frm=frm and frm.name, to=rung.name, why=why, cursor=cursor)
+        now = time.time()
+        # The wanted rung, else (if Tau refuses it) the best one below it. route() keeps the head's
+        # last_set_id; a switch inside a planner branch is not the head session's model.
+        start = self.rungs.index(want)
+        rung = self.route(ctx, lambda: want if self.blocked(want, now) is None else self.best(now, start + 1),
+                          why, frm)
+        if rung is None:
+            stop = f"{want.name} is {self.blocked(want, now)}, and no rung below it is available"
+            self.append(kind="halt", why=stop, cursor=cursor)
+            ctx.abort()
+            return {"message": {"customType": "router", "display": True, "content": f"[router] Stopping: {stop}."}}
+        if rung is not want:
+            why = f"{why}; {want.name} is {self.blocked(want, now)}"
         return {"message": {"customType": "router", "display": True, "content":
                             f"[router] From the next step you run as {rung.name} ({why}). "
                             "Your work so far is above; continue from the next unfinished step."}}
@@ -473,10 +582,10 @@ def register(api: Any) -> None:
             return f"No profile {name!r}. Profiles: {', '.join(router.profiles)}"
         router.use_profile(name)
         router.pinned = None
-        target = router.best(time.time())
+        target = router.switch_to(ctx, f"/profile {name}")
+        router.refresh_warnings()
         if target is None:
             return f"Profile {name}: every rung is blocked right now. /budget shows why."
-        router.switch_to(ctx, target, f"/profile {name}", router.by_id.get(ctx.get_model().get("id")))
         return f"Profile {name}; routing resumed on {target.name} [{target.provider}] from the next request."
 
     async def tier_cmd(args: str, ctx: Any) -> str:
@@ -488,10 +597,10 @@ def register(api: Any) -> None:
             return f"{tier!r} is not a rung of {router.profile}: {' > '.join(names)}"
         router.use_profile(router.profile, tier)
         router.pinned = None
-        target = router.best(time.time())
+        target = router.switch_to(ctx, f"/tier {tier}")
+        router.refresh_warnings()
         if target is None:
             return f"Tier {tier}: every rung at or below it is blocked. /budget shows why."
-        router.switch_to(ctx, target, f"/tier {tier}", router.by_id.get(ctx.get_model().get("id")))
         return f"Tier {tier}; now on {target.name} [{target.provider}] from the next request."
 
     for name, handler, desc in (
@@ -501,22 +610,31 @@ def register(api: Any) -> None:
             ("tier", tier_cmd, "Show or set the highest rung the router may use")):
         api.register_command(name, {"description": desc, "handler": handler})
 
-    api.on("ext:planner:need_router", on_lookup)
+    api.on("ext:tau_router.planner:need_router", on_lookup)
     api.on("message_end", router.on_message_end)
     api.on("provider_retry", router.on_refusal)
     api.on("agent_end", router.on_refusal)
+
     def on_input(event: dict[str, Any], ctx: Any) -> dict[str, Any] | None:
         result = router.on_input(event, ctx)
+        router.refresh_warnings()
         router.show_status(ctx)
         return result
 
     def on_turn_end(event: dict[str, Any], ctx: Any) -> dict[str, Any] | None:
         result = router.on_turn_end(event, ctx)
+        router.refresh_warnings()
         router.show_status(ctx)
         return result
 
+    def on_session_start(event: dict[str, Any], ctx: Any) -> None:
+        # Tau 0.14 opens the TUI's session at mount (john/tau #42), so paint the strip before the first input.
+        router.refresh_warnings()
+        router.show_status(ctx)
+
     api.on("input", on_input)
     api.on("turn_end", on_turn_end)
+    api.on("session_start", on_session_start)
     api.register_tool({
         "name": "budget_status",
         "description": "Your own spending: budgets, what is spent, which model you run on and which you can use.",

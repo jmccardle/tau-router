@@ -26,7 +26,7 @@ class PlannerCtx(FakeCtx):
 
 
 def load_planner(tau_home, **router_overrides):
-    from tau_router.ext import planner as ext
+    from tau_router import planner as ext
 
     router, router_api = load_router(tau_home, **router_overrides)
     api = FakeApi({})
@@ -81,7 +81,7 @@ async def test_a_model_above_the_tier_is_refused(tau_home):
 
 
 async def test_without_the_router_delegate_fails_loudly(tau_home):
-    from tau_router.ext import planner as ext
+    from tau_router import planner as ext
 
     api = FakeApi({})
     ext.register(api)

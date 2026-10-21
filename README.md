@@ -11,25 +11,35 @@ several LLM accounts on a budget:
   sub-agent on its own model, with its own budget slice and a shell command that
   says when it's done. A failed check is retried once, one rung up.
 
-**Status: 0.1.0, working toward 1.0** (see `ROADMAP.md`). It works on Tau 0.13.0.
-Spend is tracked per process, so two Tau instances don't yet see each other's
-spending; 0.2 fixes that.
+**Status: working toward 1.0** (see `ROADMAP.md`). `master` runs on Tau 0.14;
+the 0.1.0 release on PyPI is for Tau 0.13. Spend is tracked per process, so two
+Tau instances don't yet see each other's spending; the shared ledger fixes that.
 
 ## Install and load
 
 ```sh
-pip install ffwf-tau                        # Tau 0.13.0 or later, from PyPI
+pip install ffwf-tau                        # Tau 0.14, from PyPI
 pip install ffwf-tau-router                 # into the same environment as Tau
-tau $(tau-router ext-args)                  # loads router and planner
+tau ext authorize tau_router.router         # once per installed version
+tau ext authorize tau_router.planner
+tau                                         # finds and loads both
 ```
 
-Tau 0.13 loads extensions only from files, so `tau-router ext-args` prints a
-`-e <path>` for each installed module. Nothing is copied into `~/.tau`. The
-package also declares `tau.extensions` entry points, which Tau will read once
-john/tau #35 lands. Then `tau` alone finds the extensions, and you enable them in
-config.
+Tau finds both extensions through the package's entry points, and loads one only
+after you authorize it. Upgrading tau-router means authorizing again. The TUI
+asks; `tau -p`, `--mode rpc` and `tau serve` never ask, and print one line naming
+each extension they skipped. `tau ext list` shows what would load.
 
-`/plan <goal>` is a prompt template that ships in the package. Tau 0.13 reads
+**A router that fails to load leaves your spending unbudgeted.** Tau shows a notice
+and keeps going without it. If you need the guarantee, name it on the command
+line: `tau -e tau_router.router -e tau_router.planner`. An extension named with
+`-e` is authorized by being named, and if it fails to load, Tau stops.
+
+If you pass `--tools`, it is an allowlist over every tool, the extensions' too:
+name `delegate`, `budget_status` and (in agent mode) `select_model`, or they're
+left out.
+
+`/plan <goal>` is a prompt template that ships in the package. Tau reads
 templates only from its prompt directories (john/tau #39). Until #39 lands, link
 it in yourself if you want it:
 
@@ -42,10 +52,11 @@ enough.
 
 ## Configure
 
-The router reads `extensions.router` in Tau's `config.json`:
+The router reads `extensions."tau_router.router"` in Tau's `config.json`. Its
+name is the full module name, dots included:
 
 ```json
-"router": {
+"tau_router.router": {
   "profiles": {"budget": ["claude-haiku-5-5", "mistral-small", "nemotron-super"],
                "free-only": ["nemotron-super", "flash-lite"]},
   "profile": "budget",
@@ -79,8 +90,37 @@ Other keys:
 | `hold_seconds` | 60 | how long a refused model is held when the refusal has no Retry-After |
 | `ledger` | `<tau home>/ext-state/tau-router.jsonl` | where spending is recorded |
 
+On the command line, `--ext-config tau_router.router:profile=free-only` sets one
+key for a run; `:` separates the extension's name from the key, and the value is
+read as JSON when it parses as JSON.
+
 Config keys from before 0.1 (`usd`, `persona_usd`, `reserve_usd`) are refused,
 with a message naming each key's new name.
+
+### Upgrading from 0.1 (Tau 0.13)
+
+- Rename `extensions.router` to `extensions."tau_router.router"`, and
+  `extensions.planner` to `extensions."tau_router.planner"`. **Until you do, the
+  router fails to load, and nothing you spend is budgeted.** The failure names the
+  old key.
+- `--ext-config router.KEY=VALUE` becomes `--ext-config tau_router.router:KEY=VALUE`.
+  Tau refuses the old form at startup.
+- `tau-router ext-args` is gone; authorize the extensions instead (above).
+
+## When a rung can't be used
+
+The router skips a rung, and goes on to the next one, when:
+
+- its provider's budget is spent, or what's left is below `reserve_cost`;
+- the model is held after a 429, 503 or 529 (for its Retry-After, or `hold_seconds`);
+- Tau can't build its config entry, or the name isn't one of Tau's models;
+- its provider refused the request with a 401 or 403 ("no API key", "API key
+  refused").
+
+The last two last until Tau restarts, since they need a config or key fix.
+`/budget` shows each rung's reason. What keeps the router from routing normally
+(a spent budget, a skipped model, a pin, or every rung blocked) is also a Tau
+session warning: in the TUI footer, in `/extensions`, and over RPC.
 
 ## Commands and tools
 
@@ -94,12 +134,14 @@ with a message naming each key's new name.
 | `delegate` (tool) | run one part as a budgeted sub-agent (planner) |
 
 In the TUI, the status strip shows `router: <model> [provider] · <profile or pinned>
-<spent>/<cap> <period>`.
+<spent>/<cap> <period>`, from the start of the session.
 
 ## Tests
 
 `pip install -e '.[dev]' && pytest`. The tests run the extensions against a fake
-Tau api and ctx with scripted turns. No model is called. `experiments/` holds
+Tau api and ctx with scripted turns. No model is called. `python -I
+tests/check_loader.py` runs the installed `tau` on the installed package, in a
+throwaway home. `experiments/` holds
 the live runs, results (`FINDINGS.md`) and a sandbox for trying it
 (`TEST-DRIVE.md`). `CONTRIBUTING.md` covers the checks, remotes and releases.
 

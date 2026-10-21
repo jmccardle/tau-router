@@ -10,13 +10,14 @@ lives in one ledger that every instance reads and writes.
 The HTTP proxy that the 0.0.1 core was built toward is not part of 1.0 (see "Not in
 1.0").
 
-## Status (2026-10-18)
+## Status (2026-10-21)
 
+- **`master` runs on Tau 0.14.0** ("On Tau 0.14.0" below); it is not released yet.
 - **Version:** 0.1.0, tagged `v0.1.0` and published to PyPI as `ffwf-tau-router`
   (the import stays `tau_router`). `/plan` is linked in by hand until john/tau #39
   lands. The session's TUI drive of the status strip served as the 0.1 check; John's
   own drive is the 1.0 sign-off.
-- **Next:** 0.2, the shared SQLite ledger. Nothing blocks starting it.
+- **Next:** release the Tau 0.14 port, then 0.2, the shared SQLite ledger.
 - **Installs from PyPI** (2026-10-18). The 0.13.0 dists (`ffwf-tau`,
   `ffwf-tau-agent-core`, `-coding-agent`, `-llm`) are published. A fresh venv with
   those from PyPI, plus a tau-router wheel and no Tau checkout, gave:
@@ -110,110 +111,70 @@ Released as 0.1.0:
 - Dropped: splitting the pure decisions out of the hooks. The fake-ctx tests
   drive the hooks directly, so the split bought no testability.
 
-### With Tau 0.14.0: module names everywhere
+### On Tau 0.14.0 (on `master`, not released)
 
-John decided the #35 spelling on 2026-10-18: colons delimit structure, and dots
-belong to module names. Every site spells the full module name with its dots, and
-nothing turns `.` into `_`. A short name such as `planner` works only where a person
-types it interactively, is resolved fresh each time, and is refused when ambiguous.
-Stored config always uses the full module name. This lands in the tau-router
-release that requires `ffwf-tau-agent-core>=0.14.0`, and never ahead of Tau 0.14.0,
-because on 0.13 these names don't resolve.
+Tau 0.14.0 is on PyPI (v0.14.0 = b016dff, 2026-10-21). `master` now requires
+`ffwf-tau-agent-core>=0.14.0,<0.15`. The release number and its timing are John's
+call ("Inputs needed from John").
 
-| site | 0.13 (now) | with 0.14 |
+Names. John decided the #35 spelling on 2026-10-18: the full dotted module name
+everywhere, with `:` as the delimiter.
+
+| site | 0.1.0 (Tau 0.13) | `master` (Tau 0.14) |
 |---|---|---|
-| planner finds the router | `api.on("ext:planner:need_router")` (router.py:495) | `api.on("ext:tau_router.planner:need_router")`. planner.py:101 is unchanged: Tau prefixes the emitter's module name |
+| planner finds the router | `ext:planner:need_router` | `ext:tau_router.planner:need_router` |
 | config | `extensions.router`, `extensions.planner` | `extensions."tau_router.router"`, `extensions."tau_router.planner"` |
-| `--ext-config` | `router.profile="p"` (split on the first `.`) | `tau_router.router:profile="p"` (split on the first `:`) |
-| command owners | `ext:router.budget` | `ext:tau_router.router:budget`; typing `/budget` still works |
-| loading | `tau $(tau-router ext-args)`, through the thin files in `tau_router/ext/` | entry points `tau.extensions`, authorized once per installed version |
+| `--ext-config` | `router.KEY=VALUE` | `tau_router.router:KEY=VALUE` |
+| loading | `tau $(tau-router ext-args)`, through `tau_router/ext/` | discovered through the entry points, after `tau ext authorize` |
 
-The change list:
-- `router.py`: the subscription topic, the docstring config path, and the
-  ext:<them>:need_router comment.
-- `planner.py`: the docstring, and the not-loaded error, which names
-  `tau_router.router`.
-- `tests/conftest.py`: `FakeApi.emit` publishes as `ext:tau_router.planner:<topic>`,
-  and `load_router` looks up that topic. Tests import `tau_router.router` and
-  `tau_router.planner` directly.
-- README, `TEST-DRIVE.md`, `make_tau_home.py`, `run_plan.sh` and
-  `run_plan_nested.sh`: the config keys and `--ext-config` spelling. The archived
-  experiment scripts stay as they ran.
-- `tau_router/ext/`, `cli.py ext-args` and `test_package.py`'s `ext-args` test:
-  remove them, unless Tau 0.14's `-e` path loading still needs them (check against
-  the 0.14 build). `tau-router prompt-dir` stays until #39.
-- `pyproject.toml`: drop the "provisional" note on the `tau.extensions` group once
-  0.14 fixes the name.
-- README install: authorizing the tau-router version (#35), and re-authorizing
-  after an upgrade.
-- README upgrade note, stated plainly: a config still under the old
-  `extensions.router` key leaves the router unconfigured, so it fails to load.
-  Tau shows a notice and keeps running, which means **no budget is enforced**.
-  A user who needs the guarantee loads the router with `-e tau_router.router`,
-  so that a load failure stops the run.
-
-Built in Tau on `feat/ext-packages` @ 55a0028 (awaiting John's review). What the
-build adds to the plan above:
-- The old `--ext-config router.KEY=...` form fails at startup, so the run scripts
-  and docs change in the same commit as the dependency bump.
-- Entry points must name a module (`module:attr` is unusable), under the group
-  `tau.extensions`. tau-router's already do.
-- Installed packages need `tau ext authorize tau_router.router` (and
-  `tau_router.planner`). Headless and serve modes don't prompt: they print one
-  line and run without the extension. So `make_tau_home.py` authorizes both in
-  the sandbox HOME, and the README install says to authorize, and to authorize
-  again after an upgrade. Because the planner refuses loudly when the router is
-  missing, an unauthorized router shows up as that error, not as silent
-  unbudgeted spending.
-- `--tools` becomes an allowlist over every tool. A run that passes `--tools`
-  must name `delegate`, `budget_status` and (in agent mode) `select_model`, or the
-  extensions lose them. No tau-router script passes `--tools` today; the README
-  says so.
-
-- Persistent router states through `api.set_warning` (Tau #60): budget exhausted
-  (`error`), a provider's allowance below its reserve (`warning`), and a pin that
-  overrides the profile. They show in the TUI footer and `/extensions`, and reach a
-  client that attaches later; the router clears each when it no longer holds.
-  Call `api.set_warning` and `ctx.ui.*` only from Tau's event loop (john/tau #64 will
-  refuse an off-loop call); the router's hooks and planner branches already run there.
-  Warnings persist across `/new`, fork and switch: right for provider allowances, wrong
-  for a session budget, so the router clears its session-scoped keys on session start
-  and switch.
-
-- A rung whose model entry Tau can't build (#65; John chose option (c): only the
-  selected entry is fatal at startup, every other bad entry is a startup warning, so a
-  bad entry can sit in a profile) is refused by `ctx.set_model` before any request. The router catches Tau core's `ModelUnavailableError` (proposed
-  on fix/home-and-model-followups; until it lands, `ValueError`) and `KeyError` (a name
-  not in config), marks that rung blocked with the reason in `/budget`, and steps to
-  the next rung instead of failing the turn. It never imports `tau_coding_agent`.
-  The router keeps reading `config.json` for its catalog until #24 gives extensions
-  one (planned for Tau 0.15).
-  **Required in the 0.14 release, with a test:** live on Tau f81e361, an uncaught
-  `ModelUnavailableError` from the router's `input` hook was logged as an extension
-  error, and the turn then ran on the over-budget rung, bypassing the cap (Tau #29
-  covers the Tau side). 0.1.0 can't hit it, because it's capped below Tau 0.14.
-
-- A 401 or 403 blocks the rung persistently. The reason comes from the error's
-  `key_sent` field (Tau fix/69-keyless): False gives "no API key", True gives "API key
-  refused", None (a third-party provider) gives "HTTP 401". It never parses hint text.
-  The router holds only on 429/503/529 today, and from Tau 0.14 (#69) a keyless model
-  sends its request and gets the provider's real 401 on every turn. A 401 isn't
-  retried, so it arrives on the final error (`agent_end`), not on `provider_retry`.
-
-Check with Tau 0.14:
-- A live run of the e6 plan fixture and a TUI drive on the 0.14 build, from an
-  installed, authorized package. None has been done against tau-router yet.
-- #44: a subscription to an emitter that isn't loaded is flagged. Loading both
-  extensions must flag nothing for `need_router`, and loading the router alone
-  should flag it.
-- #42: Tau 0.14 creates the session at mount, so `/budget` completes on the
-  startup screen. Re-check in the TUI.
+What changed:
+- `tau_router/ext/` and `tau-router ext-args` are removed. `tau-router prompt-dir`
+  stays until #39.
+- A router with no config names the key it wants. If `extensions.router` is still
+  in config.json, the error says to rename it. Live on 0.14.0, a stale key meant the
+  router failed to load, Tau ran on without it, and `/budget` went to the model as
+  a prompt. The README says this plainly, and says to use `-e tau_router.router`
+  when a load failure must stop the run.
+- **A rung Tau won't switch to is skipped, not run over budget.** `ctx.set_model`
+  raises `KeyError` (not a configured model) or `ModelUnavailableError` (an entry
+  that doesn't build, #65). The router marks that rung unusable with the reason,
+  and asks again for the next rung. That covers turn start, a step-down at
+  `turn_end`, branch start, `/profile` and `/tier`. Uncaught, this raise ran the
+  turn on the over-budget rung (Tau f81e361, #29).
+- **A 401 or 403 makes the rung unusable.** The reason comes from
+  `error_detail.key_sent`: "no API key", "API key refused", or "refused" when the
+  provider doesn't say. The router now records the model each request goes to when
+  it sets one, so a refusal is charged to that model, not to the one that answered
+  last.
+- Unusable rungs are kept in memory, not in the ledger, so a fixed config or key
+  works after a restart.
+- **Session warnings (#60):** a spent provider budget or overall cap (warning), a
+  skipped model (warning), a pin (warning), and every rung blocked (error). Each
+  is set when it starts holding, cleared when it ends, and not set again while
+  unchanged. Messages carry no amounts, so they don't re-notify on every call.
+- **A new conversation drops the pin.** `/new`, fork and resume fire no hook in
+  0.14, so the router compares `ctx.session_id` at each input.
+- The status strip is painted at `session_start`, because the TUI opens its
+  session at mount (#42).
+- `make_tau_home.py` authorizes both extensions in the sandbox. The headless
+  run scripts name them with `-e`. `drive.sh` lets Tau discover them.
+- `tests/check_loader.py` drives the installed `tau` in a throwaway home:
+  - both extensions are found unauthorized, then authorized;
+  - `tau --verbose -p /budget` answers from the router, with no orphan
+    subscription (#44);
+  - with the planner disabled, the router's `need_router` subscription is flagged.
+  It passes from a clean, non-editable install. `[dev]` adds
+  `ffwf-tau-coding-agent` for the CLI.
+- Tests: 44 pass (the new ones cover each case above), and ruff and mypy are clean.
+- Live on Tau v0.14.0 (2026-10-21):
+  - fixtures/e6 `/plan` with a claude-haiku-5-5 planner printed ALL PASS for
+    $0.0254, with nothing on stderr. One slice ran over by one call ($0.0102 of
+    $0.0100), the known overshoot.
+  - TUI drive: the status strip shows at startup, and `/bud` completes there.
+    The strip loses `[anthropic]` to markup (#81).
 
 ### 0.2.0 One shared ledger
 
-- Paint the status strip on `session_start`. With Tau 0.14 creating the TUI session at
-  mount (#42), the strip is visibly blank until the first input, because the router
-  sets it only from `input`, `message_end` and `turn_end`.
 - The ledger moves to SQLite in WAL mode at `~/.tau/ext-state/tau-router.db`, replacing
   the JSONL file, which is read in full on every check.
 - Rows carry `session_id` (`ctx.session_id`), `cursor_id` and `account`. Accounts and
@@ -297,8 +258,9 @@ Check with Tau 0.14:
 | 1.0 | #29 an exception in a mutating hook ends the turn | filed |
 | 0.1, and Tau 0.14 | #35 extensions from installed packages via entry points; finding an extension is not loading it | filed; the headline of Tau 0.14; tau-router's positions are posted there |
 | 0.1 (`/plan`) | #39 an extension cannot contribute a prompt template | filed |
-| 0.1 (TUI) | #42 the startup screen has no session, so the editor's hint says `/budget` and the other extension commands "go to the model as text", and completion lists none of them. Sending one still runs it: `AgentSession.submit` checks again once the session exists (verified on 0.13.0) | decided: the session is created at mount, in Tau 0.14.0 |
-| Tau 0.14 | #35 build: one spelling for dotted module identifiers in `--ext-config`, config keys, `ext:<name>:<topic>` and command owners | decided 2026-10-18: full dotted module names, `:` as the delimiter. tau-router's rename is planned in "With Tau 0.14.0" and lands with it |
+| 0.1 (TUI) | #42 the startup screen had no session, so extension commands didn't complete there | done in 0.14.0: `/bud` completes `/budget` at startup (TUI drive, 2026-10-21) |
+| TUI status strip | `ctx.ui.set_status` text is parsed as Textual markup, so the strip's `[anthropic]` disappears | filed as #81 (2026-10-21), after 0.14.1 |
+| Tau 0.14 | #35 build: one spelling for dotted module identifiers in `--ext-config`, config keys, `ext:<name>:<topic>` and command owners | done in 0.14.0; tau-router's rename is on `master` |
 | 0.1 (typing) | tau_agent_core ships no `py.typed`, so mypy skips its annotations | not filed |
 | 0.14 docs | #69 `-m provider/model` with the key only in a config entry dies at the first request with a traceback; the fix is one startup `tau: error:` | filed. Until then the README says: name a configured model (`-m claude-haiku-5-5`), not `anthropic/<id>` |
 | 1.x | #22 `set_reasoning`, #23 thinking display and replay: a reasoning level per rung | open |
@@ -352,8 +314,20 @@ money, which is why 0.4 refuses a priced provider with no cap.
 
 ## Inputs needed from John
 
-- `-m <model>` naming a rung of the active profile isn't a pin: the router starts
-  from the top rung, so `-m nemotron-super` (free) ran on claude-haiku-5-5 (paid) on
-  2026-10-20. Should `-m` pin, like `/model`, or set the tier to that rung? Rec: pin.
+- The release of the Tau 0.14 port: its number and when. It breaks the config key,
+  so rec: 0.2.0, with the shared ledger renumbered 0.3.0 and the later milestones
+  moved up one. It needs your go before any tag.
+- The starting model and pins. The router can't tell `-m`, `/model` before the
+  first turn, and Tau's `default_model` apart:
+  - `-m <a rung of the active profile>` isn't a pin, so the router starts from the
+    top rung. `-m nemotron-super` (free) ran on claude-haiku-5-5 (paid) on
+    2026-10-20.
+  - A starting model outside the active profile *is* a pin. With
+    `default_model: big` and `--ext-config tau_router.router:profile=free-only`,
+    the run stayed on `big`, a paid model, and the profile was ignored
+    (2026-10-21).
+  - Rec: honour an explicit choice at its word. Then `-m` and `/model` pin, and
+    `default_model` doesn't. This needs Tau to say where the model came from
+    (#25).
 
 - #28: the admission-hook design, which 1.0 hard caps need.
